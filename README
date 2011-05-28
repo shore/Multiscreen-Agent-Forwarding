@@ -1,0 +1,107 @@
+Multiscreen Agent Forwarding
+----------------------------
+
+While SSH agent forwarding is a boon in a variety situations, many users
+have found it difficult to make use of it under GNU Screen, particularly
+in the case where a remote screen session is used to connect to other
+remote hosts.  Once the screen session is detached and the ssh session
+closed, the agent's socket is no longer available.  It is quite tedious,
+upon reconnection, to visit every window in the screen session to update
+the SSH_AUTH_SOCK environment variable, both for the window and for the
+running process therein, assuming the process even has a mechanism for
+doing so.
+
+This can be solved by making a "static" socket -- a filesystem path that
+doesn't change between SSH sessions but can always point to a valid
+agent socket (as long as there is one).  This static path then is used
+by Screen and thus inherited by all processes started within.  This path
+manifests as a symbolic link updated at shell creation and termination.
+
+
+Installation
+------------
+
+* Bash
+
+Copy bash-sock-twiddling to a suitable location
+Add the contents of bash-logout to ~/.bash_logout
+Add the contents of bash-rc to ~/.bashrc
+    and edit to refer to the location of the
+    bash-sock-twiddling code
+
+
+
+What's The Point?
+-----------------
+
+    Note that because the fixed socket is changed only when required,
+multiple ssh sessions to a single remote host do not prevent each other
+from using this scheme.  For example, suppose you use your laptop to
+login to a development server where you write and test code.  Part of
+testing code requires connecting to databases and web servers, and
+deploying code requires connecting to other databases, web servers,
+stagibg servers, etc.  You use one ssh key to access all of these
+servers, so to connect from the dev server to any of the others, you
+use forward the ssh agent.
+
+    Because it is often that multiple projects are in various stages of
+completion at any given time, and each project wll often consume 2 -- 5
+windows (or more), the window list quickly becomes very long, and only
+the first 10 are directly accessible without resorting to choosing from
+a list.
+
+    I solve this problem with nested screen sessions.  On my local
+machine, I have a screen session with a window for each project under
+active development, typically 3 -- 5 of them.  Each is named for its
+associated project and runs a shell which is used to connect (via ssh
+with agent forwarding) to the dev server.  On the dev server, I have a
+separate screen session for each project, typically with about 4
+windows per session (code, testing, documentation, logs, etc.).
+
+    Ordinarily, after disconnecting from the dev server, all of the
+windows and screen sessions would lose thier link to the agent.  After
+later reattaching screen, new windows would refer to a non-existant
+agent socket, preventing access to all the other servers until
+reconfigured.  But wit this socket-twiddling code, the sockets are
+managed automatically and all windows in all of my screen sessions have
+access to the agent as long as any there is at least one live agent
+socket to use.
+
+How Does It Work?
+------------
+
+At login:
+    When we login we may or may not need to update the "fixed" socket --
+not if the shell isn't interactive, or if the fixed socket points to
+this sessions socket already, or if the fixed socket is live, of if the
+socket at $SSH_AUTH_SOCK is not live.  Otherwise, the link is updated.
+
+At logout:
+    When we logout, we may or may not need to update the fixed socket.
+If the fixed socket isn't pointing at the current SSH session's socket,
+no change is needed, because closing the current SSH session won't
+close the agent's socket.  So we check if the pid associated with the
+agent's socket (which is the target of the fixed socket) is the same as
+the pid of the shell's parent's session's pid.  If so, we look for an
+alternate socket -- any other socket owned by us should do fine.  If we
+find a useable alternate socket, we repoint the fixed socket to the
+alternate.
+
+How is this related to Screen?
+------------------------------
+
+    When using screen sessions on a remote host, and connecting from
+that remote host to other remote hosts, all while using ssh-agent(1) on
+the local host for authentication, everything seems to work great until
+you reattach your screen session.  At this point, screen inherited an
+SSH agent socket in $SSH_AUTH_SOCK which was valid at the time Screen
+was started but no longer is.  Shells and other programs running under
+screen have all inherited that now-stale socket, so they are no longer
+able to communicate with the agent.
+
+    By using a static filesystem path for the socket, Screen will
+store that static path and pass it to all windows it creates (and
+therefore the processes run in those windows).  As long as the static
+path is kept pointed at a valid socket, processes using the static path
+will be able to communicate with the agent.
+
