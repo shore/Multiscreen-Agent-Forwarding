@@ -1,0 +1,6 @@
+# setup ssh socket if we can
+source "bash-sock-twiddling"
+if typeset -F |fgrep _sa_link_sock_if_appropriate >/dev/null; then
+    _sa_link_sock_if_appropriate
+    _sa_use_fixed_sock_if_appropriate
+fi

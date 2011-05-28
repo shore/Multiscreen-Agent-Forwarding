@@ -1,0 +1,4 @@
+# fixup ssh auth sock before we depart
+if typeset -F |fgrep _sa_repoint_sock_link >/dev/null; then
+    _sa_repoint_sock_link
+fi
