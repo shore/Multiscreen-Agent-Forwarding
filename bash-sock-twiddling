@@ -6,8 +6,8 @@ _sa_fixed_sock=${HOME}/.ssh/auth_sock
 # check if agent socket is live (0 ==> live)
 _sa_sock_is_live ()
 {
-    local sock=${1}
-    env SSH_AUTH_SOCK=${sock} /usr/bin/ssh-add -l &>/dev/null
+	local sock=${1}
+	env SSH_AUTH_SOCK=${sock} /usr/bin/ssh-add -l &>/dev/null
 }
 
 _sa_link_fixed_sock () { /bin/ln -fns "$1" "$_sa_fixed_sock" ; }
@@ -15,107 +15,106 @@ _sa_link_fixed_sock () { /bin/ln -fns "$1" "$_sa_fixed_sock" ; }
 # extract from an agent's socket the sshd pid for that session
 _sa_pid_of_sock ()
 {
-    local sock="$1"
+	local sock="$1"
 
-    [ -L "$sock" ] && sock=$(readlink $sock)
-    sock=$(echo $sock |egrep 'agent\.[0-9]+$')
-    if [ -z "$sock" ]; then
-        echo "expected filename ~ agent.XXXXX, XXXXX being a PID" 1>&2
-        echo "  (socket was [$sock])" 1>&2
-        return 1
-    fi
+	[ -L "$sock" ] && sock=$(readlink $sock)
+	sock=$(echo $sock |egrep 'agent\.[0-9]+$')
+	if [ -z "$sock" ]; then
+		# empty suggests no agent was forwarded to this sussion
+		return 1
+	fi
 
-    echo $sock |sed -e 's/.*\.//'
-    return 0
+	echo $sock |sed -e 's/.*\.//'
+	return 0
 }
 
 _sa_current_session_pid ()
 {
-    if [ -n "$SA_ORIG_SOCK" ]; then
-        _sa_pid_of_sock "$SA_ORIG_SOCK"
-        return 0
-    else
-        local sshd=$(ps h -o ppid $(ps h -o sess $$))
-        if ps h -o command $sshd |fgrep sshd >/dev/null; then
-            echo $sshd
-            return 0
-        fi
-        return 1
-    fi
+	if [ -n "$SA_ORIG_SOCK" ]; then
+		_sa_pid_of_sock "$SA_ORIG_SOCK"
+		return 0
+	else
+		local sshd=$(ps h -o ppid $(ps h -o sess $$))
+		if ps h -o command $sshd |fgrep sshd >/dev/null; then
+			echo $sshd
+			return 0
+		fi
+		return 1
+	fi
 }
 
 _sa_should_link_fixed_sock ()
 {
-    # interactive?  sock defined?
-    [ -n "$PS1" -a -n "$SSH_AUTH_SOCK" ]      || return 1
-    [ "$SSH_AUTH_SOCK" != "$_sa_fixed_sock" ] || return 1
+	# interactive?  sock defined?
+	[ -n "$PS1" -a -n "$SSH_AUTH_SOCK" ]		|| return 1
+	[ "$SSH_AUTH_SOCK" != "$_sa_fixed_sock" ]	|| return 1
 
-    # don't replace a live socket
-    _sa_sock_is_live $_sa_fixed_sock && return 1
-    # don't repoint to a dead socket
-    _sa_sock_is_live $SSH_AUTH_SOCK  || return 1
+	# don't replace a live socket
+	_sa_sock_is_live $_sa_fixed_sock && return 1
+	# don't repoint to a dead socket
+	_sa_sock_is_live $SSH_AUTH_SOCK  || return 1
 
-    return 0
+	return 0
 }
 
 _sa_link_sock_if_appropriate () {
-    if _sa_should_link_fixed_sock ; then
-        _sa_link_fixed_sock "$SSH_AUTH_SOCK"
-    fi
+	if _sa_should_link_fixed_sock ; then
+		_sa_link_fixed_sock "$SSH_AUTH_SOCK"
+	fi
 }
 
 _sa_use_fixed_sock_if_appropriate ()
 {
-    # interactive?  sock defined?
-    [ -n "$PS1" -a -n "$SSH_AUTH_SOCK" ]      || return 1
-    [ "$SSH_AUTH_SOCK" != "$_sa_fixed_sock" ] || return 1
-    _sa_sock_is_live "$_sa_fixed_sock"        || return 1
+	# interactive?  sock defined?
+	[ -n "$PS1" -a -n "$SSH_AUTH_SOCK" ]		|| return 1
+	[ "$SSH_AUTH_SOCK" != "$_sa_fixed_sock" ]	|| return 1
+	_sa_sock_is_live "$_sa_fixed_sock"			|| return 1
 
-    export SA_ORIG_SOCK="$SSH_AUTH_SOCK"
-    export SSH_AUTH_SOCK="$_sa_fixed_sock"
+	export SA_ORIG_SOCK="$SSH_AUTH_SOCK"
+	export SSH_AUTH_SOCK="$_sa_fixed_sock"
 }
 
 _sa_find_alternate_sock ()
 {
-    [ $# -eq 0 ] && return 1
-    local sock= file_clauses=''
+	[ $# -eq 0 ] && return 1
+	local sock= file_clauses=''
 
-    # all remaining params are PIDs to ignore
-    while [ $# -gt 0 ]; do
-        file_clauses="$file_clauses -not -name agent.$1"
-        shift
-    done
+	# all remaining params are PIDs to ignore
+	while [ $# -gt 0 ]; do
+		file_clauses="$file_clauses -not -name agent.$1"
+		shift
+	done
 
-    # search in directories that look like ssh-agent dirs
-    find $( find /tmp -maxdepth 1 -type d -name ssh-\* -user $(id -un) ) -type s $file_clauses |\
-        while read sock; do
-            # verify socket is live
-            if _sa_sock_is_live $sock; then
-                echo $sock
-                return 0
-            fi
-        done
-    # no alternate found
-    return 1
+	# search in directories that look like ssh-agent dirs
+	find $( find /tmp -maxdepth 1 -type d -name ssh-\* -user $(id -un) ) -type s $file_clauses |\
+		while read sock; do
+			# verify socket is live
+			if _sa_sock_is_live $sock; then
+				echo $sock
+				return 0
+			fi
+		done
+	# no alternate found
+	return 1
 }
 
 # called at logout to repoint the symlink at some socket that's not getting
 #   nuked when this session ends
 _sa_repoint_sock_link ()
 {
-    [ ! -e $_sa_fixed_sock ] && return 0
+	[ ! -e $_sa_fixed_sock ] && return 0
 
-    local curr_sock_pid='' curr_fixed_pid='' alt_sock=''
+	local curr_sock_pid='' curr_fixed_pid='' alt_sock=''
 
-    curr_sock_pid=$(_sa_current_session_pid)          || return 1
-    curr_fixed_pid=$(_sa_pid_of_sock $_sa_fixed_sock) || return 1
+	curr_sock_pid=$(_sa_current_session_pid)			|| return 1
+	curr_fixed_pid=$(_sa_pid_of_sock $_sa_fixed_sock)	|| return 1
 
-    # no-op if socket didn't come from current session
-    [ -n "$curr_sock_pid" -a "$curr_sock_pid" -ne "$curr_fixed_pid" ] && return 0
+	# no-op if socket didn't come from current session
+	[ -n "$curr_sock_pid" -a "$curr_sock_pid" -ne "$curr_fixed_pid" ] && return 0
 
-    # find some other socket to use, relink
-    alt_sock=$(_sa_find_alternate_sock $curr_sock_pid) || return 1
-    _sa_link_fixed_sock "$alt_sock"
+	# find some other socket to use, relink
+	alt_sock=$(_sa_find_alternate_sock $curr_sock_pid)	|| return 1
+	_sa_link_fixed_sock "$alt_sock"
 }
 
 # done
